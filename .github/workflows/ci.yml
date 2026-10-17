@@ -1,4 +1,4 @@
-# Checks that docker-compose.yml is valid.
+# Checks docker-compose.yml and runs the local Vault setup end to end, the way it runs on a developer machine.
 name: CI
 
 on:
@@ -11,4 +11,61 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
-      - run: docker compose -f docker-compose.yml config -q
+      - run: POSTGRES_PASSWORD=x docker compose -f docker-compose.yml config -q
+
+  vault-setup:
+    runs-on: ubuntu-latest
+    env:
+      VAULT: http://127.0.0.1:8200
+      SECRET: http://127.0.0.1:8200/v1/secret/data/premium-cars/backend
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: First start initialises Vault and prepares the backend secret
+        run: |
+          echo "POSTGRES_PASSWORD=ci-$(openssl rand -hex 8)" > .env
+          docker compose up -d
+          docker compose wait vault-init
+          docker compose logs vault-init
+          sudo test -s vault/secrets/init.txt
+          sudo test -s vault/secrets/backend-approle.properties
+          sudo test -s vault/secrets/admin-initial-password.txt
+
+      - name: The backend's AppRole can read its secret and nothing else
+        run: |
+          props=$(sudo cat vault/secrets/backend-approle.properties)
+          role=$(echo "$props" | sed -n 's/^spring.cloud.vault.app-role.role-id=//p')
+          sid=$(echo "$props" | sed -n 's/^spring.cloud.vault.app-role.secret-id=//p')
+          token=$(curl -sf -X POST -d "{\"role_id\":\"$role\",\"secret_id\":\"$sid\"}" $VAULT/v1/auth/approle/login | jq -r .auth.client_token)
+          echo "token=$token" >> "$GITHUB_ENV"
+          data=$(curl -sf -H "X-Vault-Token: $token" $SECRET | jq .data.data)
+          pg=$(sed -n 's/^POSTGRES_PASSWORD=//p' .env)
+          echo "$data" | jq -e --arg pg "$pg" '.DB_USERNAME == "premiumcars" and .DB_PASSWORD == $pg and (.ADMIN_INITIAL_PASSWORD | length) == 24'
+          # read-only: writing is refused
+          ! curl -sf -X POST -H "X-Vault-Token: $token" -d '{"data":{"X":"1"}}' $SECRET
+          # other paths are refused
+          ! curl -sf -H "X-Vault-Token: $token" $VAULT/v1/secret/data/other
+
+      - name: Import from a .env file (Windows line endings, quotes, unknown keys)
+        run: |
+          printf 'AUTOWINI_USER=demo\r\nAUTOWINI_PASS="p@ss word"\r\nUNKNOWN=1\r\n# comment\r\nFB_ACCESS_TOKEN=\r\n' \
+            | docker compose run --rm -T vault-init import
+          curl -sf -H "X-Vault-Token: $token" $SECRET | jq -e '.data.data
+            | .AUTOWINI_USER == "demo" and .AUTOWINI_PASS == "p@ss word" and (has("UNKNOWN") | not)
+              and (has("FB_ACCESS_TOKEN") | not) and (.DB_PASSWORD | length) > 0'
+
+      - name: After a restart Vault is sealed; docker compose up unseals it and keeps the secrets
+        run: |
+          before=$(sudo cat vault/secrets/admin-initial-password.txt)
+          docker compose restart vault
+          sleep 3
+          curl -s $VAULT/v1/sys/seal-status | jq -e '.sealed == true'
+          docker compose up -d
+          docker compose wait vault-init
+          curl -s $VAULT/v1/sys/seal-status | jq -e '.sealed == false'
+          curl -sf -H "X-Vault-Token: $token" $SECRET | jq -e '.data.data.AUTOWINI_USER == "demo"'
+          [ "$before" = "$(sudo cat vault/secrets/admin-initial-password.txt)" ]
+          docker compose run --rm -T vault-init keys
+
+      - if: always()
+        run: docker compose logs
