@@ -45,6 +45,8 @@ jobs:
           ! curl -sf -X POST -H "X-Vault-Token: $token" -d '{"data":{"X":"1"}}' $SECRET
           # other paths are refused
           ! curl -sf -H "X-Vault-Token: $token" $VAULT/v1/secret/data/other
+          # profile variants answer 404 (allowed, empty), not 403
+          [ "$(curl -s -o /dev/null -w '%{http_code}' -H "X-Vault-Token: $token" $SECRET/default)" = "404" ]
 
       - name: Import from a .env file (Windows line endings, quotes, unknown keys)
         run: |

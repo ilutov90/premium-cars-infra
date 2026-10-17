@@ -101,7 +101,8 @@ bootstrap() {
 
   log "writing policy $POLICY (read-only on $SECRET_PATH)"
   vault policy write "$POLICY" - >/dev/null <<EOF
-path "secret/data/premium-cars/backend" {
+# backend* also covers the profile variants Spring Cloud Vault looks up (backend/dev, backend,dev): 404, not 403
+path "secret/data/premium-cars/backend*" {
   capabilities = ["read"]
 }
 EOF
