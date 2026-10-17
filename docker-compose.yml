@@ -1,0 +1,25 @@
+# Local development infrastructure.
+# Start:  docker compose up -d        Stop: docker compose down
+# Wipe the database completely:        docker compose down -v
+services:
+  postgres:
+    image: postgres:17-alpine
+    container_name: premium-cars-db
+    environment:
+      POSTGRES_DB: premiumcars
+      POSTGRES_USER: premiumcars
+      POSTGRES_PASSWORD: premiumcars
+      TZ: UTC
+    ports:
+      - "5433:5432" # host 5433, so it does not clash with a PostgreSQL already running on 5432
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U premiumcars -d premiumcars"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    restart: unless-stopped
+
+volumes:
+  pgdata:

@@ -1,0 +1,14 @@
+# Checks that docker-compose.yml is valid.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  compose-config:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - run: docker compose -f docker-compose.yml config -q
