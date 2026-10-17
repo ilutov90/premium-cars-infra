@@ -1,6 +1,6 @@
 # premium-cars-infra
 
-Local infrastructure for Premium Cars Import and the "start here" guide (README.md, Bulgarian).
+Local infrastructure for Premium Cars Import and the "start here" guide (README.md, English).
 Sibling repos: `premium-cars-backend` (Spring Boot, port 8080), `premium-cars-frontend` (Next.js, port 3000).
 
 - `docker-compose.yml`: PostgreSQL 17 on host port 5433, database/user/password `premiumcars`.
