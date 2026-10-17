@@ -1,6 +1,10 @@
-# Local development infrastructure.
-# Start:  docker compose up -d        Stop: docker compose down
-# Wipe the database completely:        docker compose down -v
+# Local development infrastructure: PostgreSQL + HashiCorp Vault (secrets).
+# First time: cp .env.example .env (set POSTGRES_PASSWORD), then:
+#   docker compose up -d                       start everything (also unseals Vault after a reboot)
+#   docker compose logs vault-init             what the Vault setup did
+#   docker compose down                        stop
+#   docker compose down -v                     wipe the database AND Vault (secrets are lost)
+# Everything listens on 127.0.0.1 only.
 services:
   postgres:
     image: postgres:17-alpine
@@ -8,10 +12,10 @@ services:
     environment:
       POSTGRES_DB: premiumcars
       POSTGRES_USER: premiumcars
-      POSTGRES_PASSWORD: premiumcars
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in premium-cars-infra/.env}
       TZ: UTC
     ports:
-      - "5433:5432" # host 5433, so it does not clash with a PostgreSQL already running on 5432
+      - "127.0.0.1:5433:5432" # host 5433, so it does not clash with a PostgreSQL already running on 5432
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:
@@ -21,5 +25,51 @@ services:
       retries: 10
     restart: unless-stopped
 
+  # Secrets of the backend (database password, autowini login, Meta token, imgbb key ...).
+  # Server mode with file storage, so secrets survive restarts. Local only: no TLS, bound to 127.0.0.1.
+  vault:
+    image: hashicorp/vault:1.20
+    container_name: premium-cars-vault
+    command: server
+    cap_add:
+      - IPC_LOCK
+    environment:
+      VAULT_ADDR: http://127.0.0.1:8200
+      VAULT_LOCAL_CONFIG: >-
+        {"storage": {"file": {"path": "/vault/file"}},
+         "listener": [{"tcp": {"address": "0.0.0.0:8200", "tls_disable": true}}],
+         "ui": true, "disable_mlock": true}
+    ports:
+      - "127.0.0.1:8200:8200"
+    volumes:
+      - vaultdata:/vault/file
+    healthcheck:
+      # 200 even when sealed or not initialised: "the server answers"
+      test: ["CMD-SHELL", "wget -qO- 'http://127.0.0.1:8200/v1/sys/health?sealedcode=200&uninitcode=200' >/dev/null"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+    restart: unless-stopped
+
+  # One-shot: initialises Vault on the first run, unseals it on every `docker compose up`, and makes sure the
+  # backend's secret path, policy and AppRole exist. Writes ./vault/secrets/ (git-ignored).
+  vault-init:
+    image: hashicorp/vault:1.20
+    container_name: premium-cars-vault-init
+    depends_on:
+      vault:
+        condition: service_healthy
+    entrypoint: ["sh", "/vault/scripts/vault-setup.sh"]
+    command: ["bootstrap"]
+    environment:
+      VAULT_ADDR: http://vault:8200
+      POSTGRES_USER: premiumcars
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in premium-cars-infra/.env}
+    volumes:
+      - ./vault/scripts:/vault/scripts:ro
+      - ./vault/secrets:/vault/secrets
+    restart: "no"
+
 volumes:
   pgdata:
+  vaultdata:

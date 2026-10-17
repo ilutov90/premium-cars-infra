@@ -2,3 +2,6 @@
 .DS_Store
 .idea/
 .vscode/
+# Vault unseal key, root token, AppRole credentials, generated admin password
+vault/secrets/*
+!vault/secrets/.gitkeep
