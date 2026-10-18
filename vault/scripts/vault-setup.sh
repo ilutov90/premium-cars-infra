@@ -25,7 +25,7 @@ SECRET_PATH=secret/premium-cars/backend
 POLICY=premium-cars-backend
 ROLE=premium-cars-backend
 # Keys `import` accepts (same names as the posting script's and the backend's .env)
-KNOWN_KEYS="AUTOWINI_USER AUTOWINI_PASS FB_PAGE_ID FB_ACCESS_TOKEN IG_USER_ID IMGBB_API_KEY ADMIN_INITIAL_PASSWORD"
+KNOWN_KEYS="AUTOWINI_USER AUTOWINI_PASS FB_PAGE_ID FB_ACCESS_TOKEN IG_USER_ID IMGBB_API_KEY VIBER_CHANNEL_TOKEN ADMIN_INITIAL_PASSWORD"
 
 log() { echo "[vault-setup] $*"; }
 

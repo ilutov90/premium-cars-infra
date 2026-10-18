@@ -81,7 +81,8 @@ unseals Vault and makes sure of the secret path, a read-only policy and an AppRo
 | `admin-initial-password.txt` | the first admin password (until you change it in the admin panel) |
 
 **Move your existing `.env` into Vault (once).** The keys `AUTOWINI_USER`, `AUTOWINI_PASS`, `FB_PAGE_ID`,
-`FB_ACCESS_TOKEN`, `IG_USER_ID` and `IMGBB_API_KEY` are taken; anything else in the file is ignored.
+`FB_ACCESS_TOKEN`, `IG_USER_ID`, `IMGBB_API_KEY` and `VIBER_CHANNEL_TOKEN` are taken; anything else in the file is
+ignored.
 
 ```bash
 docker compose run --rm -T vault-init import < ../premium-cars-backend/.env
