@@ -50,10 +50,11 @@ jobs:
 
       - name: Import from a .env file (Windows line endings, quotes, unknown keys)
         run: |
-          printf 'AUTOWINI_USER=demo\r\nAUTOWINI_PASS="p@ss word"\r\nUNKNOWN=1\r\n# comment\r\nFB_ACCESS_TOKEN=\r\n' \
+          printf 'AUTOWINI_USER=demo\r\nAUTOWINI_PASS="p@ss word"\r\nUNKNOWN=1\r\n# comment\r\nFB_ACCESS_TOKEN=\r\nVIBER_CHANNEL_TOKEN=4f1a-demo\r\n' \
             | docker compose run --rm -T vault-init import
           curl -sf -H "X-Vault-Token: $token" $SECRET | jq -e '.data.data
             | .AUTOWINI_USER == "demo" and .AUTOWINI_PASS == "p@ss word" and (has("UNKNOWN") | not)
+              and .VIBER_CHANNEL_TOKEN == "4f1a-demo"
               and (has("FB_ACCESS_TOKEN") | not) and (.DB_PASSWORD | length) > 0'
 
       - name: After a restart Vault is sealed; docker compose up unseals it and keeps the secrets
