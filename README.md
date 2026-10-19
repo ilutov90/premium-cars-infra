@@ -81,7 +81,7 @@ unseals Vault and makes sure of the secret path, a read-only policy and an AppRo
 | `admin-initial-password.txt` | the first admin password (until you change it in the admin panel) |
 
 **Move your existing `.env` into Vault (once).** The keys `AUTOWINI_USER`, `AUTOWINI_PASS`, `FB_PAGE_ID`,
-`FB_ACCESS_TOKEN`, `IG_USER_ID`, `IMGBB_API_KEY` and `VIBER_CHANNEL_TOKEN` are taken; anything else in the file is
+`FB_ACCESS_TOKEN`, `IG_USER_ID`, `IMGBB_API_KEY`, `VIBER_CHANNEL_TOKEN` and `RESEND_API_KEY` are taken; anything else in the file is
 ignored.
 
 ```bash
@@ -122,7 +122,110 @@ or use `npm.cmd install` / `npm.cmd run dev`, or run the commands from Command P
 
 ---
 
-## 4. GitHub and Claude Code
+## 4. Production (premiumcarsimport.bg)
+
+The site runs on one server with Docker Compose: `docker-compose.prod.yml`. It never replaces the local setup:
+own project name (`premium-cars-prod`), own volumes, own secrets folder (`vault/secrets-prod/`), own env file
+(`.env.prod`). Always go through `./scripts/prod.sh`, which adds the env files:
+
+```
+internet ──▶ Caddy :80/:443 (Let's Encrypt) ──┬─ /api/*, /media/* ──▶ backend :8080 ──▶ PostgreSQL, Vault
+                                              └─ everything else ──▶ frontend :3000
+```
+
+| File | What |
+|---|---|
+| `docker-compose.prod.yml` | Caddy, frontend + backend (images from GHCR), PostgreSQL, Vault, vault-init |
+| `caddy/Caddyfile` | HTTPS, `www.` → main domain, `/api` and `/media` to the backend, HSTS |
+| `postgres/init-prod/01-app-user.sh` | first start only: database user `premiumcars` (owner, not superuser) |
+| `.env.prod.example` | domain, Let's Encrypt e-mail, database passwords, inquiry e-mail address |
+| `scripts/prod.sh` | `docker compose` for production; `deploy [backend-tag] [frontend-tag]`; `vault …` |
+| `scripts/server-setup.sh` | one-time server setup (updates, Docker, user `deploy`, SSH keys only, firewall, fail2ban, swap) |
+| `scripts/backup.sh`, `systemd/*` | nightly backup (database, photos, Vault) with restic to Cloudflare R2 |
+| `scripts/restore-test.sh` | restores the newest backup into a throwaway database and counts the rows |
+| `.github/workflows/deploy.yml` | Actions → Deploy → Run workflow: pull images on the server and restart |
+
+Images: CI of the backend and frontend repos pushes `ghcr.io/ilutov90/premium-cars-backend` / `-frontend` with the
+tags `latest` and the commit SHA on every merge to main. Deploying is a separate, manual step.
+
+### Try it on your computer first
+
+```powershell
+Copy-Item .env.prod.example .env.prod.local   # set ACME_EMAIL and the two passwords (any values)
+docker compose -f docker-compose.prod.yml -f docker-compose.prod.local.yml --env-file .env.prod.local up -d --build
+docker compose -f docker-compose.prod.yml -f docker-compose.prod.local.yml --env-file .env.prod.local logs vault-init
+```
+
+Builds the images from `../premium-cars-backend` and `../premium-cars-frontend`, serves https://localhost (accept
+the browser's warning about Caddy's local certificate). First admin password:
+`vault/secrets-prod-local/admin-initial-password.txt`. Secrets: same `import` as locally, with
+`-f docker-compose.prod.yml -f docker-compose.prod.local.yml --env-file .env.prod.local run --rm -T vault-init import`.
+Stop with `… down` (`down -v` wipes this test's data). The development setup (`docker compose up -d`) is untouched.
+
+### Server setup (once)
+
+1. From your computer: `scp scripts/server-setup.sh ubuntu@<IP>:` then `ssh ubuntu@<IP>` and `sudo bash server-setup.sh`.
+2. GitHub → premium-cars-infra → Settings → Deploy keys → Add the key the script printed (read-only).
+3. `ssh deploy@<IP>`, then:
+   ```bash
+   git clone git@github.com:ilutov90/premium-cars-infra.git /opt/premium-cars/premium-cars-infra
+   cd /opt/premium-cars/premium-cars-infra
+   cp .env.prod.example .env.prod && nano .env.prod      # passwords: openssl rand -hex 24
+   docker login ghcr.io -u ilutov90                      # password: a GitHub token with read:packages only
+   ```
+4. DNS (Cloudflare, "DNS only"): `A premiumcarsimport.bg → <IP>` and `A www → <IP>`.
+
+### First deploy
+
+```bash
+./scripts/prod.sh deploy                       # pulls the images, starts everything, Caddy gets the certificate
+sudo cat vault/secrets-prod/init.txt           # unseal key + root token -> Bitwarden
+read -rs VAULT_TOKEN; export VAULT_TOKEN       # paste the root token (not saved anywhere)
+./scripts/prod.sh vault import < secrets.env   # a KEY=VALUE file you typed on the server; delete it afterwards
+./scripts/prod.sh vault forget-root-token      # the root token leaves the server; restarts still unseal
+unset VAULT_TOKEN
+sudo cat vault/secrets-prod/admin-initial-password.txt   # log in, change it under Профил, then delete the file
+```
+
+The import takes `AUTOWINI_USER`, `AUTOWINI_PASS`, `FB_PAGE_ID`, `FB_ACCESS_TOKEN`, `IG_USER_ID`, `IMGBB_API_KEY`,
+`VIBER_CHANNEL_TOKEN`, `RESEND_API_KEY`. After changing secrets: `./scripts/prod.sh restart backend`.
+
+### Deploying a new version
+
+GitHub → premium-cars-infra → Actions → **Deploy** → Run workflow (tags: `latest`, or a commit SHA to roll back).
+Repository secrets: `DEPLOY_HOST` (IP), `DEPLOY_SSH_KEY` (a private key for user `deploy`; its public key goes into
+`/home/deploy/.ssh/authorized_keys`), `DEPLOY_KNOWN_HOSTS` (`ssh-keyscan <IP>`). By hand on the server:
+`./scripts/prod.sh deploy [backend-tag] [frontend-tag]`.
+
+### Backups
+
+```bash
+sudo mkdir -p /etc/premium-cars
+sudo cp scripts/backup.env.example /etc/premium-cars/backup.env && sudo chmod 600 /etc/premium-cars/backup.env
+sudo nano /etc/premium-cars/backup.env         # R2 bucket + keys, restic password (also in Bitwarden)
+sudo ./scripts/backup.sh                       # first backup now
+sudo cp systemd/premium-cars-backup.* /etc/systemd/system/ && sudo systemctl daemon-reload
+sudo systemctl enable --now premium-cars-backup.timer     # every night at 03:30 UTC
+sudo ./scripts/restore-test.sh                 # proves the backup can be restored (do it every few months)
+```
+
+### Restore from a backup (new server)
+
+Server setup as above, clone, `.env.prod` with the same passwords, `/etc/premium-cars/backup.env`, then restore the
+newest snapshot (`docker run --rm --env-file /etc/premium-cars/backup.env -v /tmp/restore:/restore
+restic/restic:0.18.0 restore latest --target /restore`) and copy back: `backup/vault-secrets/` →
+`vault/secrets-prod/`, `backup/vault-data/` and `backup/media/` into the volumes `premium-cars-prod_vaultdata` and
+`premium-cars-prod_media`, the database with `pg_restore` (`./scripts/prod.sh exec -T postgres pg_restore -U postgres
+-d premiumcars --clean --if-exists < premiumcars.dump`). Then `./scripts/prod.sh up -d`.
+
+### Production Vault
+
+Same script as locally, in production mode: after `forget-root-token` the server keeps only the unseal key (so a
+restart unseals by itself) and the backend's AppRole file (readable only by the backend's user). The root token is in
+Bitwarden; `vault import`, `vault keys` and the Vault UI need it. The Vault UI is not exposed; to use it:
+`ssh -L 8200:<vault container IP>:8200 deploy@<IP>` or the CLI through `./scripts/prod.sh exec vault vault …`.
+
+## 5. GitHub and Claude Code
 
 The code lives in three private GitHub repos. Claude Code works on them directly from claude.ai/code
 (browser or phone): it creates a branch, makes the change, runs the tests and opens a pull request. You review

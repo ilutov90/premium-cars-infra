@@ -1,0 +1,41 @@
+# Try the production stack on your own computer before deploying, with images built from the sibling repos
+# (no GHCR, no domain). Uses its own project, volumes and secrets folder: the development setup is not touched.
+#
+#   copy .env.prod.example to .env.prod.local and set ACME_EMAIL, POSTGRES_PASSWORD, POSTGRES_SUPERUSER_PASSWORD
+#   (any values; SITE_DOMAIN can stay, Caddy uses localhost here)
+#   docker compose -f docker-compose.prod.yml -f docker-compose.prod.local.yml --env-file .env.prod.local up -d --build
+#   open https://localhost  (Caddy's local certificate: accept the browser warning once)
+#   ... -f docker-compose.prod.local.yml --env-file .env.prod.local down      (add -v to wipe its data)
+#
+# Stop the development frontend/backend first if they use ports 80/443 (they normally use 3000/8080, so no clash).
+name: premium-cars-prod-local
+
+services:
+  caddy:
+    environment:
+      SITE_DOMAIN: localhost
+      HSTS: max-age=0 # do not make the browser remember HTTPS for localhost
+
+  frontend:
+    image: premium-cars-frontend:local
+    build:
+      context: ../premium-cars-frontend
+      args:
+        API_URL: http://backend:8080
+        SITE_URL: https://localhost
+    environment:
+      SITE_URL: https://localhost
+
+  backend:
+    image: premium-cars-backend:local
+    build: ../premium-cars-backend
+    environment:
+      APP_SITE_URL: https://localhost
+    volumes:
+      - ./vault/secrets-prod-local/backend:/run/vault:ro
+
+  vault-init:
+    volumes:
+      - ./vault/scripts:/vault/scripts:ro
+      - ./vault/secrets-prod-local:/vault/secrets
+

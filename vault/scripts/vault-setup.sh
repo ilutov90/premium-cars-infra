@@ -10,22 +10,28 @@
 #   import      read KEY=VALUE lines (a .env file) from stdin and store the known keys in the backend secret:
 #               docker compose run --rm -T vault-init import < ../premium-cars-backend/.env
 #   keys        list the keys stored in the backend secret (values are not printed)
+#   forget-root-token
+#               production: remove the root token from init.txt (keep it in Bitwarden). Unsealing still works;
+#               bootstrap then only unseals, and import / keys need the token: docker compose run --rm
+#               -e VAULT_TOKEN -T vault-init import (VAULT_TOKEN set in the shell, not in a file)
 #
 # Files in /vault/secrets (= premium-cars-infra/vault/secrets, git-ignored):
 #   init.txt                        unseal key and root token (local only; keep them out of git and chats)
 #   backend-approle.properties      AppRole role-id / secret-id, read by the backend at startup
+#                                   (APPROLE_FILE; production: backend/backend-approle.properties, the only
+#                                   folder mounted into the backend container)
 #   admin-initial-password.txt      the generated first admin password (until you change it in the admin panel)
 set -eu
 
 SECRETS=/vault/secrets
 INIT_FILE="$SECRETS/init.txt"
-APPROLE_FILE="$SECRETS/backend-approle.properties"
+APPROLE_FILE="${APPROLE_FILE:-$SECRETS/backend-approle.properties}"
 ADMIN_FILE="$SECRETS/admin-initial-password.txt"
 SECRET_PATH=secret/premium-cars/backend
 POLICY=premium-cars-backend
 ROLE=premium-cars-backend
 # Keys `import` accepts (same names as the posting script's and the backend's .env)
-KNOWN_KEYS="AUTOWINI_USER AUTOWINI_PASS FB_PAGE_ID FB_ACCESS_TOKEN IG_USER_ID IMGBB_API_KEY VIBER_CHANNEL_TOKEN ADMIN_INITIAL_PASSWORD"
+KNOWN_KEYS="AUTOWINI_USER AUTOWINI_PASS FB_PAGE_ID FB_ACCESS_TOKEN IG_USER_ID IMGBB_API_KEY VIBER_CHANNEL_TOKEN RESEND_API_KEY ADMIN_INITIAL_PASSWORD"
 
 log() { echo "[vault-setup] $*"; }
 
@@ -54,14 +60,37 @@ sealed() {
 unseal_key() { sed -n 's/^Unseal Key 1: //p' "$INIT_FILE"; }
 root_token() { sed -n 's/^Initial Root Token: //p' "$INIT_FILE"; }
 
+# Production: the backend container runs as uid APPROLE_OWNER and must be able to read its AppRole file.
+own_approle() {
+  if [ -n "${APPROLE_OWNER:-}" ] && [ -s "$APPROLE_FILE" ]; then
+    chown "$APPROLE_OWNER" "$(dirname "$APPROLE_FILE")" "$APPROLE_FILE"
+    chmod 700 "$(dirname "$APPROLE_FILE")"
+    chmod 400 "$APPROLE_FILE"
+  fi
+}
+
+# The root token: VAULT_TOKEN from the environment, else init.txt. Returns 1 when there is none (production).
 login_root() {
-  [ -s "$INIT_FILE" ] || { log "missing $INIT_FILE (unseal key and root token); cannot continue"; exit 1; }
-  VAULT_TOKEN=$(root_token)
+  token=${VAULT_TOKEN:-}
+  if [ -z "$token" ] && [ -s "$INIT_FILE" ]; then
+    token=$(root_token)
+  fi
+  [ -n "$token" ] || return 1
+  VAULT_TOKEN=$token
   export VAULT_TOKEN
+}
+
+require_root() {
+  login_root || {
+    log "no root token: init.txt has none (production). Run with the token from Bitwarden in VAULT_TOKEN:"
+    log "  read -rs VAULT_TOKEN; export VAULT_TOKEN; ./scripts/prod.sh run --rm -e VAULT_TOKEN -T vault-init $1"
+    exit 1
+  }
 }
 
 unseal() {
   if sealed; then
+    [ -s "$INIT_FILE" ] || { log "missing $INIT_FILE (unseal key); cannot unseal"; exit 1; }
     log "unsealing"
     vault operator unseal "$(unseal_key)" >/dev/null
   fi
@@ -92,7 +121,17 @@ bootstrap() {
     vault operator init -key-shares=1 -key-threshold=1 > "$INIT_FILE"
   fi
   unseal
-  login_root
+  if ! login_root; then
+    # production after forget-root-token: unsealing is all that is needed on a restart
+    if [ -s "$APPROLE_FILE" ]; then
+      own_approle
+      log "unsealed; no root token on disk, so the setup is skipped (run bootstrap with VAULT_TOKEN to redo it)"
+      log "ready"
+      exit 0
+    fi
+    log "no root token and no AppRole file: cannot set up the backend's access"
+    exit 1
+  fi
 
   if ! vault secrets list -format=json | grep -q '"secret/"'; then
     log "enabling KV v2 at secret/"
@@ -129,13 +168,15 @@ EOF
     role_id=$(vault read -field=role_id "auth/approle/role/$ROLE/role-id")
     secret_id=$(vault write -f -field=secret_id "auth/approle/role/$ROLE/secret-id")
     umask 077
+    mkdir -p "$(dirname "$APPROLE_FILE")"
     {
-      echo "# Written by premium-cars-infra/vault/scripts/vault-setup.sh. Local only, git-ignored."
+      echo "# Written by premium-cars-infra/vault/scripts/vault-setup.sh. Git-ignored."
       echo "spring.cloud.vault.app-role.role-id=$role_id"
       echo "spring.cloud.vault.app-role.secret-id=$secret_id"
     } > "$APPROLE_FILE"
     log "wrote AppRole credentials for the backend"
   fi
+  own_approle
 
   log "ready"
   keys
@@ -144,7 +185,7 @@ EOF
 import_env() {
   wait_for_vault
   unseal
-  login_root
+  require_root import
   # tr -d '\r': .env files saved on Windows
   tr -d '\r' | while IFS= read -r line || [ -n "$line" ]; do
     case "$line" in ''|'#'*) continue ;; esac
@@ -172,9 +213,23 @@ keys() {
   vault kv get -format=json "$SECRET_PATH" | sed -n '/"data": {/,/}/p' | sed -n 's/^ *"\([A-Z_]*\)": .*/  \1/p' | sort -u
 }
 
+forget_root_token() {
+  [ -s "$INIT_FILE" ] || { log "missing $INIT_FILE"; exit 1; }
+  if [ -z "$(root_token)" ]; then
+    log "init.txt has no root token already"
+    return
+  fi
+  umask 077
+  grep '^Unseal Key 1:' "$INIT_FILE" > "$INIT_FILE.tmp"
+  mv "$INIT_FILE.tmp" "$INIT_FILE"
+  log "root token removed from init.txt (the unseal key stays, so restarts still unseal)."
+  log "Keep the root token in Bitwarden: it is needed for import, keys and the Vault UI."
+}
+
 case "${1:-bootstrap}" in
   bootstrap) bootstrap ;;
   import) import_env ;;
-  keys) wait_for_vault; unseal; login_root; keys ;;
-  *) echo "usage: vault-setup.sh [bootstrap|import|keys]"; exit 2 ;;
+  keys) wait_for_vault; unseal; require_root keys; keys ;;
+  forget-root-token) forget_root_token ;;
+  *) echo "usage: vault-setup.sh [bootstrap|import|keys|forget-root-token]"; exit 2 ;;
 esac

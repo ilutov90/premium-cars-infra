@@ -1,0 +1,29 @@
+# premium-cars-infra/docker-compose.prod.yml: the only service reachable from outside.
+# HTTPS certificates come from Let's Encrypt automatically (for "localhost": Caddy's own local certificate).
+{
+	email {$ACME_EMAIL}
+}
+
+{$SITE_DOMAIN} {
+	encode zstd gzip
+
+	# The API and the car photos go straight to the backend, so it sees the visitor's IP (X-Forwarded-For) for
+	# its rate limits; everything else is the Next.js site. One origin: session and CSRF cookies just work.
+	@backend path /api/* /media/*
+	handle @backend {
+		reverse_proxy backend:8080
+	}
+	handle {
+		reverse_proxy frontend:3000
+	}
+
+	header {
+		Strict-Transport-Security "{$HSTS}"
+		-Server
+	}
+	log
+}
+
+www.{$SITE_DOMAIN} {
+	redir https://{$SITE_DOMAIN}{uri} permanent
+}
