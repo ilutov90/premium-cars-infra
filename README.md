@@ -140,7 +140,7 @@ internet ──▶ Caddy :80/:443 (Let's Encrypt) ──┬─ /api/*, /media/* 
 | `postgres/init-prod/01-app-user.sh` | first start only: database user `premiumcars` (owner, not superuser) |
 | `.env.prod.example` | domain, Let's Encrypt e-mail, database passwords, inquiry e-mail address |
 | `scripts/prod.sh` | `docker compose` for production; `deploy [backend-tag] [frontend-tag]`; `vault …` |
-| `scripts/server-setup.sh` | one-time server setup (updates, Docker, user `deploy`, SSH keys only, firewall, fail2ban, swap) |
+| `scripts/server-setup.sh` | one-time server setup (updates, Docker, users `admin` + `deploy`, SSH keys only, no root login, firewall, fail2ban, swap) |
 | `scripts/backup.sh`, `systemd/*` | nightly backup (database, photos, Vault) with restic to Cloudflare R2 |
 | `scripts/restore-test.sh` | restores the newest backup into a throwaway database and counts the rows |
 | `.github/workflows/deploy.yml` | Actions → Deploy → Run workflow: pull images on the server and restart |
@@ -164,7 +164,15 @@ Stop with `… down` (`down -v` wipes this test's data). The development setup (
 
 ### Server setup (once)
 
-1. From your computer: `scp scripts/server-setup.sh ubuntu@<IP>:` then `ssh ubuntu@<IP>` and `sudo bash server-setup.sh`.
+Two users on the server: **`admin`** (you, with sudo; for `sudo …` commands) and **`deploy`** (no sudo; owns the
+app in `/opt/premium-cars`, runs `prod.sh`, used by GitHub Actions). Both log in with your SSH key only.
+
+1. From your computer, as the provider gives you the server:
+   - logged in as **root** (netcup): `scp scripts/server-setup.sh root@<IP>:` then `ssh root@<IP>` and
+     `bash server-setup.sh` — creates `admin` with root's SSH keys and turns root login off;
+   - with a sudo user (e.g. `ubuntu`): `scp …` / `ssh ubuntu@<IP>` and `sudo bash server-setup.sh` (`ubuntu` is the admin).
+
+   Before closing the root session, check in a second terminal that `ssh admin@<IP>` and `sudo -v` work.
 2. GitHub → premium-cars-infra → Settings → Deploy keys → Add the key the script printed (read-only).
 3. `ssh deploy@<IP>`, then:
    ```bash
@@ -176,6 +184,9 @@ Stop with `… down` (`down -v` wipes this test's data). The development setup (
 4. DNS (Cloudflare, "DNS only"): `A premiumcarsimport.bg → <IP>` and `A www → <IP>`.
 
 ### First deploy
+
+As `deploy` in `/opt/premium-cars/premium-cars-infra`; the `sudo` lines in a second terminal as `admin`
+(`cd /opt/premium-cars/premium-cars-infra` first).
 
 ```bash
 ./scripts/prod.sh deploy                       # pulls the images, starts everything, Caddy gets the certificate
@@ -198,6 +209,8 @@ Repository secrets: `DEPLOY_HOST` (IP), `DEPLOY_SSH_KEY` (a private key for user
 `./scripts/prod.sh deploy [backend-tag] [frontend-tag]`.
 
 ### Backups
+
+As `admin`, in `/opt/premium-cars/premium-cars-infra`:
 
 ```bash
 sudo mkdir -p /etc/premium-cars

@@ -1,7 +1,9 @@
 #!/bin/bash
-# One-time setup of a fresh Ubuntu 24.04 server for Premium Cars (stage 3 of the launch plan). Run as the
-# provider's user with sudo, from a copy of this file:
-#   scp scripts/server-setup.sh ubuntu@<IP>:     then on the server:   sudo bash server-setup.sh
+# One-time setup of a fresh Ubuntu 24.04 server for Premium Cars (stage 3 of the launch plan). Copy it to the
+# server and run it as root, either way:
+#   - providers that log you in as root (netcup):  scp scripts/server-setup.sh root@<IP>:   then  bash server-setup.sh
+#     -> creates the admin user ADMIN_USER (default "admin": sudo, your SSH keys from root) and turns root login off
+#   - providers with their own sudo user (e.g. "ubuntu"):  sudo bash server-setup.sh   (that user is the admin)
 # Safe to run again. What it does:
 #   - updates the system and turns on automatic security updates
 #   - installs Docker Engine + the compose plugin (Docker's own apt repository), git, fail2ban
@@ -12,8 +14,13 @@
 #   - 2 GB swap (headless Chromium during imports needs headroom)
 set -euo pipefail
 
-[ "$(id -u)" -eq 0 ] || { echo "run with sudo"; exit 1; }
-LOGIN_USER=${SUDO_USER:-ubuntu}
+[ "$(id -u)" -eq 0 ] || { echo "run as root or with sudo"; exit 1; }
+# the person's own login: the sudo user, or (logged in as root) an admin user created below
+if [ -n "${SUDO_USER:-}" ] && [ "$SUDO_USER" != root ]; then
+  LOGIN_USER=$SUDO_USER
+else
+  LOGIN_USER=${ADMIN_USER:-admin}
+fi
 DEPLOY_USER=deploy
 APP_DIR=/opt/premium-cars
 export DEBIAN_FRONTEND=noninteractive
@@ -50,18 +57,36 @@ if [ ! -f /etc/docker/daemon.json ]; then
   systemctl restart docker
 fi
 
+step "Admin user $LOGIN_USER (sudo)"
+if ! id "$LOGIN_USER" >/dev/null 2>&1; then
+  adduser --disabled-password --gecos "" "$LOGIN_USER"
+fi
+usermod -aG sudo,docker "$LOGIN_USER"
+# no password exists for this user: sudo without one (SSH keys are the only way in)
+if [ "$(passwd -S "$LOGIN_USER" | awk '{print $2}')" != P ]; then
+  echo "$LOGIN_USER ALL=(ALL) NOPASSWD:ALL" > /etc/sudoers.d/90-premium-cars-admin
+  chmod 440 /etc/sudoers.d/90-premium-cars-admin
+fi
+admin_keys=/home/$LOGIN_USER/.ssh/authorized_keys
+install -d -m 700 -o "$LOGIN_USER" -g "$LOGIN_USER" "/home/$LOGIN_USER/.ssh"
+touch "$admin_keys"
+if [ -s /root/.ssh/authorized_keys ]; then
+  cat /root/.ssh/authorized_keys >> "$admin_keys"
+fi
+sort -u "$admin_keys" -o "$admin_keys"
+chown "$LOGIN_USER:$LOGIN_USER" "$admin_keys"
+chmod 600 "$admin_keys"
+
 step "User $DEPLOY_USER"
 if ! id "$DEPLOY_USER" >/dev/null 2>&1; then
   adduser --disabled-password --gecos "" "$DEPLOY_USER"
 fi
 usermod -aG docker "$DEPLOY_USER"
-usermod -aG docker "$LOGIN_USER"
 install -d -m 700 -o "$DEPLOY_USER" -g "$DEPLOY_USER" /home/$DEPLOY_USER/.ssh
 keys=/home/$DEPLOY_USER/.ssh/authorized_keys
 touch "$keys"
-if [ -s "/home/$LOGIN_USER/.ssh/authorized_keys" ]; then
-  cat "/home/$LOGIN_USER/.ssh/authorized_keys" >> "$keys"
-fi
+cat "$admin_keys" >> "$keys"
+
 if [ -n "${DEPLOY_PUBKEY:-}" ]; then
   echo "$DEPLOY_PUBKEY" >> "$keys"
 fi
@@ -83,7 +108,8 @@ fi
 install -d -m 755 -o "$DEPLOY_USER" -g "$DEPLOY_USER" "$APP_DIR"
 
 step "SSH: keys only"
-if [ -s "$keys" ]; then
+# only once the admin user can get in with a key, so you cannot lock yourself out
+if [ -s "$admin_keys" ]; then
   cat > /etc/ssh/sshd_config.d/10-premium-cars.conf <<'EOF'
 PasswordAuthentication no
 KbdInteractiveAuthentication no
@@ -91,7 +117,7 @@ PermitRootLogin no
 EOF
   systemctl reload ssh
 else
-  echo "!! no SSH key in authorized_keys: password login left on. Add your key and run this again."
+  echo "!! no SSH key for $LOGIN_USER: password and root login left on. Add your key and run this again."
 fi
 
 step "Firewall"
@@ -126,7 +152,8 @@ swapon --show
 
 cat <<EOF
 
-Done. Next (README "Production" -> "First deploy"):
+Done. From now on log in as $LOGIN_USER (ssh $LOGIN_USER@<IP>; root login is off) and use sudo.
+Next (README "Production" -> "First deploy"):
   1. GitHub -> premium-cars-infra -> Settings -> Deploy keys -> Add (read-only), this key:
      $(cat "$gh_key.pub")
   2. log in as $DEPLOY_USER (ssh $DEPLOY_USER@<IP>) and:
