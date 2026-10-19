@@ -12,6 +12,65 @@ jobs:
     steps:
       - uses: actions/checkout@v5
       - run: POSTGRES_PASSWORD=x docker compose -f docker-compose.yml config -q
+      - name: Production compose files
+        run: |
+          sed -e 's/^ACME_EMAIL=$/ACME_EMAIL=ci@example.com/' -e 's/^POSTGRES_PASSWORD=$/POSTGRES_PASSWORD=x/' \
+              -e 's/^POSTGRES_SUPERUSER_PASSWORD=$/POSTGRES_SUPERUSER_PASSWORD=y/' .env.prod.example > .env.prod
+          docker compose -f docker-compose.prod.yml --env-file .env.prod config -q
+          docker compose -f docker-compose.prod.yml -f docker-compose.prod.local.yml --env-file .env.prod config -q
+      - name: Caddyfile
+        run: |
+          docker run --rm -e SITE_DOMAIN=premiumcarsimport.bg -e ACME_EMAIL=ci@example.com -e HSTS=max-age=31536000 \
+            -v "$PWD/caddy/Caddyfile:/etc/caddy/Caddyfile:ro" caddy:2.10 caddy validate --config /etc/caddy/Caddyfile
+      - name: Shell scripts
+        run: |
+          for f in scripts/*.sh vault/scripts/*.sh postgres/init-prod/*.sh; do bash -n "$f"; done
+          shellcheck -S warning scripts/*.sh vault/scripts/*.sh postgres/init-prod/*.sh
+
+  # The production database and Vault as on the server (no app images needed): separate app user, AppRole file
+  # readable by the backend's user, root token removed from disk, restart unseals without it.
+  production-vault:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - name: First start
+        run: |
+          {
+            echo "SITE_DOMAIN=premiumcarsimport.bg"
+            echo "ACME_EMAIL=ci@example.com"
+            echo "POSTGRES_PASSWORD=app-$(openssl rand -hex 8)"
+            echo "POSTGRES_SUPERUSER_PASSWORD=su-$(openssl rand -hex 8)"
+          } > .env.prod
+          ./scripts/prod.sh up -d postgres vault vault-init
+          ./scripts/prod.sh wait vault-init
+          ./scripts/prod.sh logs vault-init
+          sudo test "$(sudo stat -c '%u %a' vault/secrets-prod/backend/backend-approle.properties)" = "10001 400"
+          echo "root=$(sudo sed -n 's/^Initial Root Token: //p' vault/secrets-prod/init.txt)" >> "$GITHUB_ENV"
+      - name: The backend's database user owns the database but is not a superuser
+        run: |
+          pw=$(sed -n 's/^POSTGRES_PASSWORD=//p' .env.prod)
+          ./scripts/prod.sh exec -T postgres psql "postgresql://premiumcars:$pw@localhost/premiumcars" -tA -c \
+            "CREATE TABLE ci_check (i int); DROP TABLE ci_check; SELECT rolsuper FROM pg_roles WHERE rolname = current_user;" \
+            | grep -qx f
+      - name: Import with the root token from the environment, then remove it from disk
+        run: |
+          printf 'RESEND_API_KEY=re_ci_dummy\nAUTOWINI_USER=demo\n' | VAULT_TOKEN=$root ./scripts/prod.sh vault import
+          ./scripts/prod.sh vault forget-root-token
+          ! sudo grep -q 'Root Token' vault/secrets-prod/init.txt
+          # without the token: refused; with it: works
+          ! ./scripts/prod.sh vault keys
+          VAULT_TOKEN=$root ./scripts/prod.sh vault keys | tee keys.txt
+          grep -q RESEND_API_KEY keys.txt && grep -q DB_PASSWORD keys.txt
+      - name: After a restart Vault unseals without the root token
+        run: |
+          ./scripts/prod.sh restart vault
+          sleep 3
+          ./scripts/prod.sh up -d postgres vault vault-init
+          ./scripts/prod.sh wait vault-init
+          ./scripts/prod.sh logs vault-init | grep -q "setup is skipped"
+          ./scripts/prod.sh exec -T vault vault status -format=json | grep -q '"sealed": false'
+      - if: always()
+        run: ./scripts/prod.sh logs
 
   vault-setup:
     runs-on: ubuntu-latest

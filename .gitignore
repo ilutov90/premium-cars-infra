@@ -1,7 +1,13 @@
 .env
+.env.prod
+.env.prod.local
+.env.tags
 .DS_Store
 .idea/
 .vscode/
 # Vault unseal key, root token, AppRole credentials, generated admin password
 vault/secrets/*
 !vault/secrets/.gitkeep
+vault/secrets-prod/*
+!vault/secrets-prod/.gitkeep
+vault/secrets-prod-local/

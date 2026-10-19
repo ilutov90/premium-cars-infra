@@ -1,0 +1,129 @@
+# Production: the whole site on one server. Start through scripts/prod.sh (it adds the env files):
+#   ./scripts/prod.sh up -d            start / update
+#   ./scripts/prod.sh ps               status
+#   ./scripts/prod.sh logs -f backend  logs
+# Local development keeps using docker-compose.yml; this file has its own project name, volumes and secrets folder,
+# so both can exist on one machine. To try this stack locally see docker-compose.prod.local.yml.
+#
+# Only Caddy is reachable from outside (80/443, HTTPS certificates from Let's Encrypt). PostgreSQL, Vault, the
+# backend and the frontend live on the internal network without published ports.
+name: premium-cars-prod
+
+services:
+  caddy:
+    image: caddy:2.10
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    environment:
+      SITE_DOMAIN: ${SITE_DOMAIN:?set SITE_DOMAIN in .env.prod}
+      ACME_EMAIL: ${ACME_EMAIL:?set ACME_EMAIL in .env.prod}
+      HSTS: ${HSTS:-max-age=31536000}
+    volumes:
+      - ./caddy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - frontend
+      - backend
+
+  frontend:
+    image: ghcr.io/ilutov90/premium-cars-frontend:${FRONTEND_TAG:-latest}
+    restart: unless-stopped
+    environment:
+      API_URL: http://backend:8080
+      SITE_URL: https://${SITE_DOMAIN}
+
+  backend:
+    image: ghcr.io/ilutov90/premium-cars-backend:${BACKEND_TAG:-latest}
+    restart: unless-stopped
+    init: true
+    shm_size: 1gb # headless Chromium needs more than Docker's default 64 MB /dev/shm
+    depends_on:
+      postgres:
+        condition: service_healthy
+      vault-init:
+        condition: service_completed_successfully
+    environment:
+      VAULT_ADDR: http://vault:8200
+      # the AppRole login written by vault-init, then the secrets from Vault
+      SPRING_CONFIG_IMPORT: optional:file:/run/vault/backend-approle.properties,optional:vault://
+      DB_URL: jdbc:postgresql://postgres:5432/premiumcars
+      APP_SECURE_COOKIES: "true"
+      APP_API_DOCS: "false"
+      LIQUIBASE_CONTEXTS: none # no demo cars
+      APP_SITE_URL: https://${SITE_DOMAIN}
+      APP_NOTIFY_TO: ${NOTIFY_TO:-}
+      APP_NOTIFY_FROM: ${NOTIFY_FROM:-Premium Cars Import <noreply@premiumcarsimport.bg>}
+      TZ: Europe/Sofia
+    volumes:
+      - media:/app/data
+      - ${VAULT_SECRETS_DIR:-./vault/secrets-prod}/backend:/run/vault:ro
+
+  postgres:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: premiumcars
+      # superuser for maintenance; the backend logs in as "premiumcars" (owner of the database, not a superuser),
+      # created on the first start by postgres/init-prod/01-app-user.sh
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${POSTGRES_SUPERUSER_PASSWORD:?set POSTGRES_SUPERUSER_PASSWORD in .env.prod}
+      APP_DB_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env.prod}
+      TZ: UTC
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./postgres/init-prod:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d premiumcars"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  vault:
+    image: hashicorp/vault:1.20
+    restart: unless-stopped
+    command: server
+    cap_add:
+      - IPC_LOCK
+    environment:
+      VAULT_ADDR: http://127.0.0.1:8200
+      VAULT_LOCAL_CONFIG: >-
+        {"storage": {"file": {"path": "/vault/file"}},
+         "listener": [{"tcp": {"address": "0.0.0.0:8200", "tls_disable": true}}],
+         "ui": true, "disable_mlock": true}
+    volumes:
+      - vaultdata:/vault/file
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- 'http://127.0.0.1:8200/v1/sys/health?sealedcode=200&uninitcode=200' >/dev/null"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+
+  # One-shot on every start: initialises Vault the first time, unseals it after every restart.
+  vault-init:
+    image: hashicorp/vault:1.20
+    depends_on:
+      vault:
+        condition: service_healthy
+    entrypoint: ["sh", "/vault/scripts/vault-setup.sh"]
+    command: ["bootstrap"]
+    environment:
+      VAULT_ADDR: http://vault:8200
+      POSTGRES_USER: premiumcars
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env.prod}
+      APPROLE_FILE: /vault/secrets/backend/backend-approle.properties
+      APPROLE_OWNER: "10001" # the backend image's "app" user
+    volumes:
+      - ./vault/scripts:/vault/scripts:ro
+      - ${VAULT_SECRETS_DIR:-./vault/secrets-prod}:/vault/secrets
+    restart: "no"
+
+volumes:
+  pgdata:
+  vaultdata:
+  media:
+  caddy_data:
+  caddy_config:

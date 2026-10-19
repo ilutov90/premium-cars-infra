@@ -1,0 +1,46 @@
+# Deploy to the production server: Actions -> Deploy -> Run workflow (choose the image versions; default: latest).
+# Pulls premium-cars-infra on the server, then the images, and restarts what changed. To roll back, run it again
+# with the previous commit's tag (the images are tagged with the commit SHA of the backend / frontend repo).
+#
+# Repository secrets (Settings -> Secrets and variables -> Actions):
+#   DEPLOY_HOST          the server's IP or name
+#   DEPLOY_SSH_KEY       private key whose public part is in /home/deploy/.ssh/authorized_keys
+#   DEPLOY_KNOWN_HOSTS   output of: ssh-keyscan <server IP>
+name: Deploy
+
+on:
+  workflow_dispatch:
+    inputs:
+      backend_tag:
+        description: Backend image tag (latest or a commit SHA)
+        default: latest
+      frontend_tag:
+        description: Frontend image tag (latest or a commit SHA)
+        default: latest
+
+concurrency: deploy
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - name: SSH key
+        run: |
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "${{ secrets.DEPLOY_SSH_KEY }}" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          printf '%s\n' "${{ secrets.DEPLOY_KNOWN_HOSTS }}" > ~/.ssh/known_hosts
+      - name: Deploy
+        env:
+          HOST: ${{ secrets.DEPLOY_HOST }}
+          BACKEND_TAG: ${{ inputs.backend_tag }}
+          FRONTEND_TAG: ${{ inputs.frontend_tag }}
+        run: |
+          case "$BACKEND_TAG$FRONTEND_TAG" in *[!A-Za-z0-9._-]*) echo "bad tag"; exit 1 ;; esac
+          ssh "deploy@$HOST" "cd /opt/premium-cars/premium-cars-infra && git pull --ff-only && ./scripts/prod.sh deploy '$BACKEND_TAG' '$FRONTEND_TAG'"
+      - name: The site answers
+        env:
+          HOST: ${{ secrets.DEPLOY_HOST }}
+        run: |
+          ssh "deploy@$HOST" 'for i in $(seq 1 40); do docker inspect -f "{{.State.Health.Status}}" premium-cars-prod-backend-1 | grep -qx healthy && exit 0; sleep 5; done; exit 1'
