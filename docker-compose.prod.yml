@@ -121,6 +121,22 @@ services:
       - ${VAULT_SECRETS_DIR:-./vault/secrets-prod}:/vault/secrets
     restart: "no"
 
+  # Always running: unseals Vault whenever it comes back sealed. vault-init runs only with `up`, so without this a
+  # server reboot (Docker restarts the containers itself) would leave Vault sealed and the backend failing to start.
+  # The backend keeps restarting until Vault is open (at most ~10 s after Vault is up), then starts normally.
+  vault-unsealer:
+    image: hashicorp/vault:1.20
+    restart: unless-stopped
+    depends_on:
+      - vault
+    entrypoint: ["sh", "/vault/scripts/vault-setup.sh"]
+    command: ["watch"]
+    environment:
+      VAULT_ADDR: http://vault:8200
+    volumes:
+      - ./vault/scripts:/vault/scripts:ro
+      - ${VAULT_SECRETS_DIR:-./vault/secrets-prod}:/vault/secrets:ro
+
 volumes:
   pgdata:
   vaultdata:

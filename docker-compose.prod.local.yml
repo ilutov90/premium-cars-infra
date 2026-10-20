@@ -39,3 +39,7 @@ services:
       - ./vault/scripts:/vault/scripts:ro
       - ./vault/secrets-prod-local:/vault/secrets
 
+  vault-unsealer:
+    volumes:
+      - ./vault/scripts:/vault/scripts:ro
+      - ./vault/secrets-prod-local:/vault/secrets:ro

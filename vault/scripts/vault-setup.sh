@@ -10,6 +10,9 @@
 #   import      read KEY=VALUE lines (a .env file) from stdin and store the known keys in the backend secret:
 #               docker compose run --rm -T vault-init import < ../premium-cars-backend/.env
 #   keys        list the keys stored in the backend secret (values are not printed)
+#   watch       production (service vault-unsealer, always running): every WATCH_INTERVAL seconds (10), unseal Vault
+#               when it is sealed. Covers what bootstrap cannot: a server reboot or a restart of the Vault container
+#               outside `docker compose up`. Needs only the unseal key in init.txt (mounted read-only).
 #   forget-root-token
 #               production: remove the root token from init.txt (keep it in Bitwarden). Unsealing still works;
 #               bootstrap then only unseals, and import / keys need the token: docker compose run --rm
@@ -107,6 +110,30 @@ store() {
   else
     vault kv put "$SECRET_PATH" "$@" >/dev/null
   fi
+}
+
+watch_seal() {
+  interval=${WATCH_INTERVAL:-10}
+  log "watching Vault every ${interval}s; it is unsealed whenever it comes back sealed"
+  warned=""
+  while :; do
+    code=0
+    vault status >/dev/null 2>&1 || code=$?
+    # 0 = unsealed, 2 = sealed (or not initialised yet: bootstrap does that), 1 = not reachable (restarting)
+    if [ "$code" -eq 2 ] && initialised; then
+      key=""
+      [ -r "$INIT_FILE" ] && key=$(unseal_key)
+      if [ -n "$key" ]; then
+        log "Vault is sealed: unsealing"
+        vault operator unseal "$key" >/dev/null || log "unseal failed; trying again in ${interval}s"
+        warned=""
+      elif [ -z "$warned" ]; then
+        log "Vault is sealed and $INIT_FILE has no unseal key"
+        warned=1
+      fi
+    fi
+    sleep "$interval"
+  done
 }
 
 bootstrap() {
@@ -231,5 +258,6 @@ case "${1:-bootstrap}" in
   import) import_env ;;
   keys) wait_for_vault; unseal; require_root keys; keys ;;
   forget-root-token) forget_root_token ;;
-  *) echo "usage: vault-setup.sh [bootstrap|import|keys|forget-root-token]"; exit 2 ;;
+  watch) watch_seal ;;
+  *) echo "usage: vault-setup.sh [bootstrap|import|keys|forget-root-token|watch]"; exit 2 ;;
 esac
