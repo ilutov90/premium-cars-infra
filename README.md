@@ -172,7 +172,7 @@ app in `/opt/premium-cars`, runs `prod.sh`, used by GitHub Actions). Both log in
      `bash server-setup.sh` — creates `admin` with root's SSH keys and turns root login off;
    - with a sudo user (e.g. `ubuntu`): `scp …` / `ssh ubuntu@<IP>` and `sudo bash server-setup.sh` (`ubuntu` is the admin).
 
-   Before closing the root session, check in a second terminal that `ssh admin@<IP>` and `sudo -v` work.
+   Before closing the root session, check in a second terminal that `ssh admin@<IP>` and `sudo whoami` work (prints `root` without a password; `sudo -v` asks for one even with NOPASSWD, because `admin` is also in the `sudo` group).
 2. GitHub → premium-cars-infra → Settings → Deploy keys → Add the key the script printed (read-only).
 3. `ssh deploy@<IP>`, then:
    ```bash
