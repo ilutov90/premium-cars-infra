@@ -69,6 +69,16 @@ jobs:
           ./scripts/prod.sh wait vault-init
           ./scripts/prod.sh logs vault-init | grep -q "setup is skipped"
           ./scripts/prod.sh exec -T vault vault status -format=json | grep -q '"sealed": false'
+      - name: Without vault-init (server reboot) the unsealer opens Vault on its own
+        run: |
+          ./scripts/prod.sh up -d vault-unsealer
+          ./scripts/prod.sh restart vault
+          for i in $(seq 1 30); do
+            ./scripts/prod.sh exec -T vault vault status -format=json 2>/dev/null | grep -q '"sealed": false' && break
+            sleep 2
+          done
+          ./scripts/prod.sh exec -T vault vault status -format=json | grep -q '"sealed": false'
+          ./scripts/prod.sh logs vault-unsealer | grep -q "Vault is sealed: unsealing"
       - if: always()
         run: ./scripts/prod.sh logs
 

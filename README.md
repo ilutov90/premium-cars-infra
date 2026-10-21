@@ -201,6 +201,13 @@ sudo cat vault/secrets-prod/admin-initial-password.txt   # log in, change it und
 The import takes `AUTOWINI_USER`, `AUTOWINI_PASS`, `FB_PAGE_ID`, `FB_ACCESS_TOKEN`, `IG_USER_ID`, `IMGBB_API_KEY`,
 `VIBER_CHANNEL_TOKEN`, `RESEND_API_KEY`. After changing secrets: `./scripts/prod.sh restart backend`.
 
+### Restarts and reboots
+
+Everything comes back by itself after a server reboot: Docker restarts the containers, `vault-unsealer` unseals
+Vault with the key in `vault/secrets-prod/init.txt` (within ~10 s), and the backend, which keeps restarting
+until then, starts normally. Check with `./scripts/prod.sh ps` (backend `healthy`) and
+`./scripts/prod.sh logs vault-unsealer`.
+
 ### Deploying a new version
 
 GitHub → premium-cars-infra → Actions → **Deploy** → Run workflow (tags: `latest`, or a commit SHA to roll back).
