@@ -57,6 +57,10 @@ services:
       APP_SITE_URL: https://${SITE_DOMAIN}
       APP_NOTIFY_TO: ${NOTIFY_TO:-}
       APP_NOTIFY_FROM: ${NOTIFY_FROM:-Premium Cars Import <noreply@premiumcarsimport.bg>}
+      # Cloudflare R2 for photos (the keys come from Vault); empty = photos stay in the media volume
+      R2_ENDPOINT: ${R2_ENDPOINT:-}
+      R2_BUCKET: ${R2_BUCKET:-premium-cars-photos}
+      R2_PUBLIC_URL: ${R2_PUBLIC_URL:-}
       TZ: Europe/Sofia
     volumes:
       - media:/app/data

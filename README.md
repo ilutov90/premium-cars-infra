@@ -81,7 +81,8 @@ unseals Vault and makes sure of the secret path, a read-only policy and an AppRo
 | `admin-initial-password.txt` | the first admin password (until you change it in the admin panel) |
 
 **Move your existing `.env` into Vault (once).** The keys `AUTOWINI_USER`, `AUTOWINI_PASS`, `FB_PAGE_ID`,
-`FB_ACCESS_TOKEN`, `IG_USER_ID`, `IMGBB_API_KEY`, `VIBER_CHANNEL_TOKEN` and `RESEND_API_KEY` are taken; anything else in the file is
+`FB_ACCESS_TOKEN`, `IG_USER_ID`, `IMGBB_API_KEY`, `VIBER_CHANNEL_TOKEN`, `RESEND_API_KEY`, `R2_ACCESS_KEY_ID` and
+`R2_SECRET_ACCESS_KEY` are taken; anything else in the file is
 ignored.
 
 ```bash
@@ -199,7 +200,24 @@ sudo cat vault/secrets-prod/admin-initial-password.txt   # log in, change it und
 ```
 
 The import takes `AUTOWINI_USER`, `AUTOWINI_PASS`, `FB_PAGE_ID`, `FB_ACCESS_TOKEN`, `IG_USER_ID`, `IMGBB_API_KEY`,
-`VIBER_CHANNEL_TOKEN`, `RESEND_API_KEY`. After changing secrets: `./scripts/prod.sh restart backend`.
+`VIBER_CHANNEL_TOKEN`, `RESEND_API_KEY`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`. After changing secrets:
+`./scripts/prod.sh restart backend`.
+
+### Photos in Cloudflare R2
+
+guazi and autohome photos are shown from their sites; the others (autowini) are stored. Without R2 they are kept in
+the `media` volume; with R2 they go to the bucket and the backend moves the photos already in the volume there after
+it starts (log: "Moved ... car photos to R2").
+
+1. Cloudflare → R2 → Create bucket `premium-cars-photos`; its Settings → Custom Domains → Connect
+   `img.premiumcarsimport.bg` (the zone is on Cloudflare).
+2. R2 → Manage API tokens → Create API token: Object Read & Write, only that bucket. Keep the Access Key ID and
+   Secret Access Key in Bitwarden.
+3. On the server: the two keys into Vault (a file `secrets.env` with `R2_ACCESS_KEY_ID=...` and
+   `R2_SECRET_ACCESS_KEY=...`, imported as above with the root token, then `shred -u secrets.env`), and in `.env.prod`
+   `R2_ENDPOINT=https://<account id>.r2.cloudflarestorage.com` and `R2_PUBLIC_URL=https://img.premiumcarsimport.bg/`.
+4. `./scripts/prod.sh up -d backend` (reads `.env.prod` again), then `./scripts/prod.sh logs backend | grep -i r2`:
+   "New photos are stored in Cloudflare R2".
 
 ### Restarts and reboots
 
