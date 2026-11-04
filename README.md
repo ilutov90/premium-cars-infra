@@ -141,6 +141,7 @@ internet ──▶ Caddy :80/:443 (Let's Encrypt) ──┬─ /api/*, /media/* 
 | `postgres/init-prod/01-app-user.sh` | first start only: database user `premiumcars` (owner, not superuser) |
 | `.env.prod.example` | domain, Let's Encrypt e-mail, database passwords, inquiry e-mail address |
 | `scripts/prod.sh` | `docker compose` for production; `deploy [backend-tag] [frontend-tag]`; `vault …` |
+| `scripts/local-worker.ps1`, `scripts/local-worker-info.sh` | run the automatic import from a Windows laptop against the production database while the sites block the server ([docs/local-worker.md](docs/local-worker.md)) |
 | `scripts/server-setup.sh` | one-time server setup (updates, Docker, users `admin` + `deploy`, SSH keys only, no root login, firewall, fail2ban, swap) |
 | `scripts/backup.sh`, `systemd/*` | nightly backup (database, photos, Vault) with restic to Cloudflare R2 |
 | `scripts/restore-test.sh` | restores the newest backup into a throwaway database and counts the rows |

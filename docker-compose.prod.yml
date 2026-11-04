@@ -61,6 +61,8 @@ services:
       R2_ENDPOINT: ${R2_ENDPOINT:-}
       R2_BUCKET: ${R2_BUCKET:-premium-cars-photos}
       R2_PUBLIC_URL: ${R2_PUBLIC_URL:-}
+      # false while the automatic import runs elsewhere (a laptop against this database: docs/local-worker.md)
+      APP_AUTO_IMPORT_ENABLED: ${AUTO_IMPORT_ENABLED:-true}
       TZ: Europe/Sofia
     volumes:
       - media:/app/data
