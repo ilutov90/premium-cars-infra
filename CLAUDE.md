@@ -17,3 +17,6 @@ Sibling repos: `premium-cars-backend` (Spring Boot, port 8080), `premium-cars-fr
 - Validate changes with `POSTGRES_PASSWORD=x docker compose config -q`; CI runs the whole Vault setup (local and
   production mode), validates the Caddyfile and shellchecks the scripts.
 - Keep README.md in sync when ports, versions or start steps change.
+- `AUTO_IMPORT_ENABLED` (`.env.prod`, default true) -> the backend's `APP_AUTO_IMPORT_ENABLED`: false while a laptop runs the
+  automatic import against the production database (`scripts/local-worker.ps1` + `scripts/local-worker-info.sh`,
+  `docs/local-worker.md`). Only one of them may run it.
