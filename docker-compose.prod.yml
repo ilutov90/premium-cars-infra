@@ -30,14 +30,14 @@ services:
       - backend
 
   frontend:
-    image: ghcr.io/ilutov90/premium-cars-frontend:${FRONTEND_TAG:-latest}
+    image: ${IMAGE_REGISTRY:-ghcr.io/ilutov90}/premium-cars-frontend:${FRONTEND_TAG:-latest}
     restart: unless-stopped
     environment:
       API_URL: http://backend:8080
       SITE_URL: https://${SITE_DOMAIN}
 
   backend:
-    image: ghcr.io/ilutov90/premium-cars-backend:${BACKEND_TAG:-latest}
+    image: ${IMAGE_REGISTRY:-ghcr.io/ilutov90}/premium-cars-backend:${BACKEND_TAG:-latest}
     restart: unless-stopped
     init: true
     shm_size: 1gb # headless Chromium needs more than Docker's default 64 MB /dev/shm

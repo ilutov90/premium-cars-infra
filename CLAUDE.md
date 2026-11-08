@@ -20,3 +20,7 @@ Sibling repos: `premium-cars-backend` (Spring Boot, port 8080), `premium-cars-fr
 - `AUTO_IMPORT_ENABLED` (`.env.prod`, default true) -> the backend's `APP_AUTO_IMPORT_ENABLED`: false while a laptop runs the
   automatic import against the production database (`scripts/local-worker.ps1` + `scripts/local-worker-info.sh`,
   `docs/local-worker.md`). Only one of them may run it.
+- Two ways to build and deploy, side by side: GitHub (`.github/workflows`, images in GHCR) and GitLab + Google Cloud
+  Build (`cloudbuild*.yaml`, images in `registry.gitlab.com/<group>`, docs/gitlab-cloud-build.md). `prod.sh deploy`
+  takes the registry from `IMAGE_REGISTRY` in its environment (Cloud Build's deploy sets it) and keeps it in
+  `.env.tags`; without it GHCR. Keep the two in step when the CI or the deploy changes.

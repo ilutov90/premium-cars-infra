@@ -1,0 +1,52 @@
+# CI on Google Cloud Build, for the code on GitLab (docs/gitlab-cloud-build.md): on a merge request to main and on a
+# push to main, the compose files, the Caddyfile and the scripts are checked. GitHub Actions (.github/workflows)
+# stays as it is and also runs both Vault setups end to end; on Cloud Build those run by hand when the Vault scripts
+# change (docs/gitlab-cloud-build.md, "The Vault tests").
+timeout: 900s
+options:
+  logging: CLOUD_LOGGING_ONLY
+  substitutionOption: ALLOW_LOOSE
+
+steps:
+  # Blocks commits that contain passwords, tokens or keys (the files of this commit)
+  - id: secrets
+    name: zricethezav/gitleaks:latest
+    args: ["dir", "--redact", "--verbose", "."]
+    waitFor: ["-"]
+
+  - id: compose-config
+    name: docker:28-cli
+    entrypoint: sh
+    args:
+      - -c
+      - |
+        set -e
+        POSTGRES_PASSWORD=x docker compose -f docker-compose.yml config -q
+        sed -e 's/^ACME_EMAIL=$$/ACME_EMAIL=ci@example.com/' -e 's/^POSTGRES_PASSWORD=$$/POSTGRES_PASSWORD=x/' \
+          -e 's/^POSTGRES_SUPERUSER_PASSWORD=$$/POSTGRES_SUPERUSER_PASSWORD=y/' .env.prod.example > /tmp/env.prod
+        docker compose -f docker-compose.prod.yml --env-file /tmp/env.prod config -q
+        docker compose -f docker-compose.prod.yml -f docker-compose.prod.local.yml --env-file /tmp/env.prod config -q
+        IMAGE_REGISTRY=registry.gitlab.com/x docker compose -f docker-compose.prod.yml --env-file /tmp/env.prod config \
+          | grep -q 'image: registry.gitlab.com/x/premium-cars-backend'
+    waitFor: ["-"]
+
+  - id: caddyfile
+    name: caddy:2.10
+    env:
+      - SITE_DOMAIN=premiumcarsimport.bg
+      - ACME_EMAIL=ci@example.com
+      - HSTS=max-age=31536000
+    args: ["caddy", "validate", "--config", "caddy/Caddyfile"]
+    waitFor: ["-"]
+
+  - id: scripts
+    name: koalaman/shellcheck-alpine:stable
+    entrypoint: sh
+    args:
+      - -c
+      - |
+        set -e
+        apk add --no-cache bash >/dev/null
+        for f in scripts/*.sh vault/scripts/*.sh postgres/init-prod/*.sh; do bash -n "$$f"; done
+        shellcheck -S warning scripts/*.sh vault/scripts/*.sh postgres/init-prod/*.sh
+    waitFor: ["-"]
