@@ -22,8 +22,12 @@ mirror run fails until they come to GitHub through a pull request.
 - `prod.sh deploy` takes the registry from `IMAGE_REGISTRY` in its environment (the Cloud Build deploy sets it) and
   writes it to `.env.tags`, so restarts keep it; the GitHub deploy does not set it, so its images come from GHCR.
   `IMAGE_REGISTRY` in `.env.prod` stays empty.
-- The server may pull this repo from GitHub or from GitLab (`origin`): GitLab's `main` follows GitHub's through the
-  mirror.
+- Each deploy pulls this repo on the server from its own side: the GitHub deploy `git pull --ff-only origin main`
+  (`origin` = GitHub), the Cloud Build deploy `git pull --ff-only gitlab main` (remote `gitlab` = GitLab, read with a
+  deploy key). So the GitHub deploy never depends on GitLab or on the mirror, and Cloud Build still deploys when GitHub
+  is down. The server's remotes once:
+  `git remote add gitlab git@gitlab.com:premium-cars-import/premium-cars-infra.git` (or rename it, if `origin` was
+  GitLab), `git branch -u origin/main`.
 - The server logs in to the GitLab registry once (`docker login registry.gitlab.com`, a deploy token with
   `read_registry`). Cloud Build pushes with another deploy token (`write_registry`), Secret Manager `gitlab-registry`
   = `<username>:<token>`.
