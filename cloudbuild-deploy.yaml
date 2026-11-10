@@ -36,6 +36,6 @@ steps:
         mkdir -p -m 700 /root/.ssh
         printf '%s\n' "$$DEPLOY_SSH_KEY" > /root/.ssh/id_ed25519 && chmod 600 /root/.ssh/id_ed25519
         printf '%s\n' "$$DEPLOY_KNOWN_HOSTS" > /root/.ssh/known_hosts
-        ssh deploy@${_DEPLOY_HOST} "cd /opt/premium-cars/premium-cars-infra && git pull --ff-only && IMAGE_REGISTRY=${_REGISTRY} ./scripts/prod.sh deploy '${_BACKEND_TAG}' '${_FRONTEND_TAG}'"
+        ssh deploy@${_DEPLOY_HOST} "cd /opt/premium-cars/premium-cars-infra && git pull --ff-only gitlab main && IMAGE_REGISTRY=${_REGISTRY} ./scripts/prod.sh deploy '${_BACKEND_TAG}' '${_FRONTEND_TAG}'"
         echo "--- the site answers"
         ssh deploy@${_DEPLOY_HOST} 'for i in $$(seq 1 40); do docker inspect -f "{{.State.Health.Status}}" premium-cars-prod-backend-1 | grep -qx healthy && exit 0; sleep 5; done; exit 1'

@@ -44,5 +44,13 @@ Sibling repos: `premium-cars-backend` (Spring Boot, port 8080), `premium-cars-fr
   A change that spans repos gets one pull request per repo, with the same branch name.
 - The owner reviews, merges (merge commit) and deploys: premium-cars-infra → Actions → Deploy (images from GHCR).
   The GitLab copy and Cloud Build follow by themselves through the mirror; never push to `main` or to GitLab.
+- The owner's preferences: short answers; when a better idea comes up, propose it and ask before writing code; test
+  methods named `test{Method}_{DataOrAction}_{ExpectedResult}`, no comments in test classes. Commands written for the
+  owner must be exactly what to run: never sample values that look real (keys, tokens), since they are run as written.
+- The production server: `/opt/premium-cars/premium-cars-infra`, user `deploy`; its key for GitHub is
+  `~/.ssh/github_infra` (`scripts/server-setup.sh`), not `id_ed25519`. Remotes: `origin` = GitHub (the GitHub deploy
+  pulls `origin main`), `gitlab` = GitLab (the Cloud Build deploy pulls `gitlab main`). The automatic import runs nightly
+  at 03:00 Sofia: deploy between runs, and backend + frontend together when the API changes.
+- A branch made before 2026-11-08 has no `cloudbuild.yaml`: merge `main` into it before Cloud Build builds it.
 - Decisions and context worth keeping go into these CLAUDE.md files or `docs/` through a pull request, not only into a
   chat, so the next session knows them.

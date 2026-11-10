@@ -38,7 +38,7 @@ jobs:
           FRONTEND_TAG: ${{ inputs.frontend_tag }}
         run: |
           case "$BACKEND_TAG$FRONTEND_TAG" in *[!A-Za-z0-9._-]*) echo "bad tag"; exit 1 ;; esac
-          ssh "deploy@$HOST" "cd /opt/premium-cars/premium-cars-infra && git pull --ff-only && ./scripts/prod.sh deploy '$BACKEND_TAG' '$FRONTEND_TAG'"
+          ssh "deploy@$HOST" "cd /opt/premium-cars/premium-cars-infra && git pull --ff-only origin main && ./scripts/prod.sh deploy '$BACKEND_TAG' '$FRONTEND_TAG'"
       - name: The site answers
         env:
           HOST: ${{ secrets.DEPLOY_HOST }}
