@@ -1,0 +1,41 @@
+# Deploy to the production server from Google Cloud Build (docs/gitlab-cloud-build.md): a manual trigger "deploy"
+# runs it with _BACKEND_TAG / _FRONTEND_TAG (latest or a commit SHA). It pulls this repo on the server from GitLab,
+# then the images from the GitLab registry, and restarts what changed. To roll back, run it with the previous tags.
+# The GitHub deploy (.github/workflows/deploy.yml) works as before and takes the images from GHCR again.
+#
+# Trigger substitutions: _DEPLOY_HOST (the server's IP), _REGISTRY (registry.gitlab.com/<group>).
+# Secret Manager: deploy-ssh-key (private key of the server's "deploy" user), deploy-known-hosts (ssh-keyscan output).
+timeout: 900s
+options:
+  logging: CLOUD_LOGGING_ONLY
+  substitutionOption: ALLOW_LOOSE
+substitutions:
+  _BACKEND_TAG: latest
+  _FRONTEND_TAG: latest
+  _DEPLOY_HOST: ""
+  _REGISTRY: registry.gitlab.com/premium-cars-import
+availableSecrets:
+  secretManager:
+    - versionName: projects/$PROJECT_ID/secrets/deploy-ssh-key/versions/latest
+      env: DEPLOY_SSH_KEY
+    - versionName: projects/$PROJECT_ID/secrets/deploy-known-hosts/versions/latest
+      env: DEPLOY_KNOWN_HOSTS
+
+steps:
+  - id: deploy
+    name: alpine:3.22
+    entrypoint: sh
+    secretEnv: [DEPLOY_SSH_KEY, DEPLOY_KNOWN_HOSTS]
+    args:
+      - -c
+      - |
+        set -eu
+        case "${_BACKEND_TAG}${_FRONTEND_TAG}${_REGISTRY}" in *[!A-Za-z0-9._/-]*) echo "bad tag or registry"; exit 1 ;; esac
+        [ -n "${_DEPLOY_HOST}" ] || { echo "_DEPLOY_HOST is empty"; exit 1; }
+        apk add --no-cache openssh-client >/dev/null
+        mkdir -p -m 700 /root/.ssh
+        printf '%s\n' "$$DEPLOY_SSH_KEY" > /root/.ssh/id_ed25519 && chmod 600 /root/.ssh/id_ed25519
+        printf '%s\n' "$$DEPLOY_KNOWN_HOSTS" > /root/.ssh/known_hosts
+        ssh deploy@${_DEPLOY_HOST} "cd /opt/premium-cars/premium-cars-infra && git pull --ff-only && IMAGE_REGISTRY=${_REGISTRY} ./scripts/prod.sh deploy '${_BACKEND_TAG}' '${_FRONTEND_TAG}'"
+        echo "--- the site answers"
+        ssh deploy@${_DEPLOY_HOST} 'for i in $$(seq 1 40); do docker inspect -f "{{.State.Health.Status}}" premium-cars-prod-backend-1 | grep -qx healthy && exit 0; sleep 5; done; exit 1'

@@ -20,3 +20,13 @@ Sibling repos: `premium-cars-backend` (Spring Boot, port 8080), `premium-cars-fr
 - `AUTO_IMPORT_ENABLED` (`.env.prod`, default true) -> the backend's `APP_AUTO_IMPORT_ENABLED`: false while a laptop runs the
   automatic import against the production database (`scripts/local-worker.ps1` + `scripts/local-worker-info.sh`,
   `docs/local-worker.md`). Only one of them may run it.
+- Where the code lives: GitHub (`ilutov90/premium-cars-*`) is the main place: a branch from `main`, a pull request
+  to `main`, merged there with a merge commit (not squash or rebase, so GitLab's `main` stays an ancestor). Never push
+  to `main`. GitLab (`premium-cars-import/premium-cars-*`) is only updated by each repo's
+  `.github/workflows/mirror-gitlab.yml` (pushes `main` after every push to GitHub's `main`, never forced, token
+  `GITLAB_MIRROR_TOKEN` in a header). Do not push branches or merge requests to GitLab.
+- Two ways to build and deploy: GitHub (main: `.github/workflows`, images in GHCR, Actions -> Deploy) and, as the
+  backup, GitLab + Google Cloud Build (`cloudbuild*.yaml`, images in `registry.gitlab.com/<group>`,
+  docs/gitlab-cloud-build.md). `prod.sh deploy` takes the registry from `IMAGE_REGISTRY` in its environment (Cloud
+  Build's deploy sets it) and keeps it in `.env.tags`; without it GHCR. Keep the two in step when the CI or the
+  deploy changes.
