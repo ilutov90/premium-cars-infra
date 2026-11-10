@@ -30,3 +30,19 @@ Sibling repos: `premium-cars-backend` (Spring Boot, port 8080), `premium-cars-fr
   docs/gitlab-cloud-build.md). `prod.sh deploy` takes the registry from `IMAGE_REGISTRY` in its environment (Cloud
   Build's deploy sets it) and keeps it in `.env.tags`; without it GHCR. Keep the two in step when the CI or the
   deploy changes.
+
+## Working with the owner (Claude Code sessions)
+
+- Answer the owner in Bulgarian. Code, comments, commit messages, pull requests and docs stay English.
+- Sessions run in the cloud environment "Premium Cars Import": the three GitHub repos (`ilutov90/premium-cars-backend`,
+  `-frontend`, `-infra`) side by side, with `npm ci` and the backend's Maven dependencies done at start. There Docker is
+  not available, so the backend's database/Vault tests are skipped locally; GitHub CI runs them.
+- Every change: a branch from GitHub's `main`, the repo's checks (`mvn test`; `npm run lint` + `npm run build`;
+  `docker compose config`), push the branch to GitHub, open a pull request to `main` and give the owner its link.
+  GitHub GraphQL is not available from the sessions: open pull requests with the REST API
+  (`gh api repos/ilutov90/<repo>/pulls -f base=main -f head=<branch> -f title=... -f body=...`).
+  A change that spans repos gets one pull request per repo, with the same branch name.
+- The owner reviews, merges (merge commit) and deploys: premium-cars-infra → Actions → Deploy (images from GHCR).
+  The GitLab copy and Cloud Build follow by themselves through the mirror; never push to `main` or to GitLab.
+- Decisions and context worth keeping go into these CLAUDE.md files or `docs/` through a pull request, not only into a
+  chat, so the next session knows them.
