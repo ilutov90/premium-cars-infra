@@ -146,9 +146,12 @@ internet ──▶ Caddy :80/:443 (Let's Encrypt) ──┬─ /api/*, /media/* 
 | `scripts/backup.sh`, `systemd/*` | nightly backup (database, photos, Vault) with restic to Cloudflare R2 |
 | `scripts/restore-test.sh` | restores the newest backup into a throwaway database and counts the rows |
 | `.github/workflows/deploy.yml` | Actions → Deploy → Run workflow: pull images on the server and restart |
+| `.github/workflows/mirror-gitlab.yml` | after every push to main: pushes main on to GitLab (backup way, [docs/gitlab-cloud-build.md](docs/gitlab-cloud-build.md)) |
 
 Images: CI of the backend and frontend repos pushes `ghcr.io/ilutov90/premium-cars-backend` / `-frontend` with the
-tags `latest` and the commit SHA on every merge to main. Deploying is a separate, manual step.
+tags `latest` and the commit SHA on every merge to main. Deploying is a separate, manual step. The backup way
+(GitLab + Google Cloud Build, images in the GitLab registry, Cloud Build trigger `deploy`) is in
+[docs/gitlab-cloud-build.md](docs/gitlab-cloud-build.md).
 
 ### Try it on your computer first
 
@@ -266,9 +269,16 @@ Bitwarden; `vault import`, `vault keys` and the Vault UI need it. The Vault UI i
 
 ## 5. GitHub and Claude Code
 
-The code lives in three private GitHub repos. Claude Code works on them directly from claude.ai/code
-(browser or phone): it creates a branch, makes the change, runs the tests and opens a pull request. You review
-it and press Merge.
+The code lives in three private GitHub repos (`ilutov90/premium-cars-backend`, `-frontend`, `-infra`). Claude Code
+works on them directly from claude.ai/code (browser or phone): it creates a branch, makes the change, runs the tests
+and opens a pull request. You review it and press Merge (a merge commit, not squash or rebase).
+
+GitLab (`premium-cars-import`) has a copy of each repo for the backup way to build and deploy (Google Cloud Build,
+[docs/gitlab-cloud-build.md](docs/gitlab-cloud-build.md)). Nobody pushes there by hand: after every push to main,
+`.github/workflows/mirror-gitlab.yml` pushes main on to GitLab, never forced. Each repo needs the secret
+`GITLAB_MIRROR_TOKEN` (Settings → Secrets and variables → Actions): a GitLab token with `write_repository` whose user
+may push to GitLab's protected main. If GitLab's main ever gets commits of its own, the mirror fails until they come
+to GitHub through a pull request.
 
 Each repo has:
 
@@ -278,6 +288,7 @@ Each repo has:
   - frontend: `npm run lint` and `npm run build`;
   - infra: validation of `docker-compose.yml` and the whole Vault setup against a real Vault;
   - all three: gitleaks (no passwords, tokens or keys in commits).
+- `.github/workflows/mirror-gitlab.yml`: pushes main on to GitLab after every push to main.
 
 ### On your computer after Claude's changes are merged
 

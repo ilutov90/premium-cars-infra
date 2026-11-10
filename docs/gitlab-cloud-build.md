@@ -1,8 +1,17 @@
-# GitLab + Google Cloud Build (second way to build and deploy)
+# GitLab + Google Cloud Build (backup way to build and deploy)
 
-Beside GitHub (`.github/workflows`, images in GHCR), the three repositories can live on GitLab.com (group
-`premium-cars-import`) with CI on Google Cloud Build (free tier: 2,500 build-minutes a month on e2-standard-2) and
-images in the GitLab registry. Both ways stay usable; the step-by-step plan is kept outside the repo.
+GitHub (`.github/workflows`, images in GHCR) is the main way. The three repositories also have a copy on GitLab.com
+(group `premium-cars-import`) with CI on Google Cloud Build (free tier: 2,500 build-minutes a month on e2-standard-2)
+and images in the GitLab registry, as the backup way. Both ways stay usable; the step-by-step plan is kept outside
+the repo.
+
+GitLab is updated only from GitHub: each repo's `.github/workflows/mirror-gitlab.yml` pushes `main` to GitLab after
+every push to GitHub's `main` (so the Cloud Build push-to-main trigger builds the same commit), never forced. The
+token is the GitHub repository secret `GITLAB_MIRROR_TOKEN` (a GitLab access token with `write_repository` whose user
+may push to the protected `main`), sent as `Authorization: Basic oauth2:<token>`, never in the URL. Pull requests on
+GitHub are merged with a merge commit (not squash or rebase), so GitLab's `main` stays an ancestor and the push is a
+fast-forward. No branches or merge requests are pushed to GitLab; if its `main` gets commits of its own anyway, the
+mirror run fails until they come to GitHub through a pull request.
 
 | | GitHub | GitLab + Cloud Build |
 |---|---|---|
@@ -13,7 +22,8 @@ images in the GitLab registry. Both ways stay usable; the step-by-step plan is k
 - `prod.sh deploy` takes the registry from `IMAGE_REGISTRY` in its environment (the Cloud Build deploy sets it) and
   writes it to `.env.tags`, so restarts keep it; the GitHub deploy does not set it, so its images come from GHCR.
   `IMAGE_REGISTRY` in `.env.prod` stays empty.
-- The server pulls this repo from GitLab (`origin`); GitLab mirrors to GitHub when that account works.
+- The server may pull this repo from GitHub or from GitLab (`origin`): GitLab's `main` follows GitHub's through the
+  mirror.
 - The server logs in to the GitLab registry once (`docker login registry.gitlab.com`, a deploy token with
   `read_registry`). Cloud Build pushes with another deploy token (`write_registry`), Secret Manager `gitlab-registry`
   = `<username>:<token>`.
