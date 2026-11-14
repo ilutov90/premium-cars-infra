@@ -20,6 +20,9 @@ Sibling repos: `premium-cars-backend` (Spring Boot, port 8080), `premium-cars-fr
 - `AUTO_IMPORT_ENABLED` (`.env.prod`, default true) -> the backend's `APP_AUTO_IMPORT_ENABLED`: false while a laptop runs the
   automatic import against the production database (`scripts/local-worker.ps1` + `scripts/local-worker-info.sh`,
   `docs/local-worker.md`). Only one of them may run it.
+- `IMPORT_PHOTO_PARALLEL` (4), `IMPORT_PHOTO_PAUSE` (PT0S), `IMPORT_QUEUE_PAUSE` (PT1S) in `.env.prod` -> the backend's
+  `app.importer.photo-parallel` / `photo-pause` and `app.auto-import.queue-pause`: the pace of the import queue. The old,
+  slow pace (1, PT1S, PT2S) is the way back when autowini refuses the server; `./scripts/prod.sh up -d` applies it.
 - Where the code lives: GitHub (`ilutov90/premium-cars-*`) is the main place: a branch from `main`, a pull request
   to `main`, merged there with a merge commit (not squash or rebase, so GitLab's `main` stays an ancestor). Never push
   to `main`. GitLab (`premium-cars-import/premium-cars-*`) is only updated by each repo's

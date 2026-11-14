@@ -63,6 +63,11 @@ services:
       R2_PUBLIC_URL: ${R2_PUBLIC_URL:-}
       # false while the automatic import runs elsewhere (a laptop against this database: docs/local-worker.md)
       APP_AUTO_IMPORT_ENABLED: ${AUTO_IMPORT_ENABLED:-true}
+      # Pace of the automatic import's queue (autowini refuses a server that goes too fast): photos of one listing
+      # downloaded at a time, the gap between two photo downloads, the gap between two listings
+      APP_IMPORTER_PHOTO_PARALLEL: ${IMPORT_PHOTO_PARALLEL:-4}
+      APP_IMPORTER_PHOTO_PAUSE: ${IMPORT_PHOTO_PAUSE:-PT0S}
+      APP_AUTO_IMPORT_QUEUE_PAUSE: ${IMPORT_QUEUE_PAUSE:-PT1S}
       TZ: Europe/Sofia
     volumes:
       - media:/app/data
