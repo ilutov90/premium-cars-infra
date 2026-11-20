@@ -81,8 +81,8 @@ unseals Vault and makes sure of the secret path, a read-only policy and an AppRo
 | `admin-initial-password.txt` | the first admin password (until you change it in the admin panel) |
 
 **Move your existing `.env` into Vault (once).** The keys `AUTOWINI_USER`, `AUTOWINI_PASS`, `FB_PAGE_ID`,
-`FB_ACCESS_TOKEN`, `IG_USER_ID`, `IMGBB_API_KEY`, `VIBER_CHANNEL_TOKEN`, `RESEND_API_KEY`, `R2_ACCESS_KEY_ID` and
-`R2_SECRET_ACCESS_KEY` are taken; anything else in the file is
+`FB_ACCESS_TOKEN`, `IG_USER_ID`, `IMGBB_API_KEY`, `VIBER_CHANNEL_TOKEN`, `RESEND_API_KEY`, `R2_ACCESS_KEY_ID`,
+`R2_SECRET_ACCESS_KEY`, `R2_DOCS_ACCESS_KEY_ID` and `R2_DOCS_SECRET_ACCESS_KEY` are taken; anything else in the file is
 ignored.
 
 ```bash
@@ -204,7 +204,8 @@ sudo cat vault/secrets-prod/admin-initial-password.txt   # log in, change it und
 ```
 
 The import takes `AUTOWINI_USER`, `AUTOWINI_PASS`, `FB_PAGE_ID`, `FB_ACCESS_TOKEN`, `IG_USER_ID`, `IMGBB_API_KEY`,
-`VIBER_CHANNEL_TOKEN`, `RESEND_API_KEY`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`. After changing secrets:
+`VIBER_CHANNEL_TOKEN`, `RESEND_API_KEY`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, `R2_DOCS_ACCESS_KEY_ID`,
+`R2_DOCS_SECRET_ACCESS_KEY`. After changing secrets:
 `./scripts/prod.sh restart backend`.
 
 ### Photos in Cloudflare R2
@@ -222,6 +223,27 @@ it starts (log: "Moved ... car photos to R2").
    `R2_ENDPOINT=https://<account id>.r2.cloudflarestorage.com` and `R2_PUBLIC_URL=https://img.premiumcarsimport.bg/`.
 4. `./scripts/prod.sh up -d backend` (reads `.env.prod` again), then `./scripts/prod.sh logs backend | grep -i r2`:
    "New photos are stored in Cloudflare R2".
+
+### Order documents in a private R2 bucket
+
+Invoices and contracts go to a second bucket, separate from the public photos. It has no public access and no custom
+domain, so the files are reachable only through the backend.
+
+1. Cloudflare → R2 → Create bucket `premium-cars-documents`. Do not connect a custom domain or enable public access.
+2. R2 → Manage API tokens → Create API token: Object Read & Write, only that bucket. Keep the Access Key ID and
+   Secret Access Key in Bitwarden.
+3. On the server: the two keys into Vault. Write a file `secrets.env` with the lines `R2_DOCS_ACCESS_KEY_ID=<access key id>`
+   and `R2_DOCS_SECRET_ACCESS_KEY=<secret access key>`, then:
+
+   ```bash
+   read -rs VAULT_TOKEN; export VAULT_TOKEN       # paste the root token from Bitwarden (not saved anywhere)
+   ./scripts/prod.sh vault import < secrets.env
+   shred -u secrets.env
+   unset VAULT_TOKEN
+   ```
+
+   In `.env.prod` set `R2_DOCS_BUCKET=premium-cars-documents`; the endpoint is the same `R2_ENDPOINT`.
+4. `./scripts/prod.sh up -d backend` (reads `.env.prod` again).
 
 ### Restarts and reboots
 

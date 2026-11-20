@@ -60,6 +60,8 @@ services:
       # Cloudflare R2 for photos (the keys come from Vault); empty = photos stay in the media volume
       R2_ENDPOINT: ${R2_ENDPOINT:-}
       R2_BUCKET: ${R2_BUCKET:-premium-cars-photos}
+      # private bucket for order documents (invoices, contracts): same endpoint, keys from Vault
+      R2_DOCS_BUCKET: ${R2_DOCS_BUCKET:-premium-cars-documents}
       R2_PUBLIC_URL: ${R2_PUBLIC_URL:-}
       # false while the automatic import runs elsewhere (a laptop against this database: docs/local-worker.md)
       APP_AUTO_IMPORT_ENABLED: ${AUTO_IMPORT_ENABLED:-true}

@@ -9,6 +9,7 @@ Sibling repos: `premium-cars-backend` (Spring Boot, port 8080), `premium-cars-fr
 - The backend reads every secret from Vault `secret/premium-cars/backend` and its AppRole login from
   `vault/secrets/backend-approle.properties`; key names must match the backend's `application.yml` placeholders.
   Never commit anything from `vault/secrets/` (git-ignored) or a real `.env`.
+- Production Vault also holds `R2_DOCS_ACCESS_KEY_ID` / `R2_DOCS_SECRET_ACCESS_KEY` (the private order-documents R2 bucket, README "Order documents in a private R2 bucket"); `R2_DOCS_BUCKET` is in `.env.prod`.
 - The schema is owned by Liquibase in the backend repo. Do not add SQL init scripts here (the only init script,
   `postgres/init-prod/01-app-user.sh`, creates the production login role; no tables).
 - Production: `docker-compose.prod.yml` (project `premium-cars-prod`, `.env.prod`, `vault/secrets-prod/`), always run
